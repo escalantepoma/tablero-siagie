@@ -1,0 +1,6 @@
+streamlit
+pandas
+pdfplumber
+matplotlib
+xlsxwriter
+openpyxl
