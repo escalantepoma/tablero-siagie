@@ -149,6 +149,17 @@ def buscar_fila_cabecera(df):
 def procesar_excel_csv(df, nombre_archivo, nombre_hoja="Main"):
     resultados_hoja = []
     idx_cabecera = buscar_fila_cabecera(df)
+    # --- Depuración Temporal ---
+    st.write(f"Depurando Hoja: {nombre_hoja}")
+    st.write(f"Fila de cabecera encontrada en índice: {idx_cabecera}")
+    if idx_cabecera != -1:
+        st.write("Primeras 5 filas de datos crudos detectados:")
+        st.dataframe(df.iloc[idx_cabecera:idx_cabecera+6])
+    else:
+        st.write("Primeras 20 filas de la hoja para revisión:")
+        st.dataframe(df.head(20))
+    st.write("---")
+    # ---------------------------
     if idx_cabecera == -1: return [] 
 
     try:
