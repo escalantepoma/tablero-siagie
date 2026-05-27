@@ -80,14 +80,47 @@ def obtener_barra_img(valores, etiquetas, colores, estilo_3d):
 
 @st.cache_data(show_spinner=False)
 def preparar_matriz_panoramica(df_alumnos):
-    df_alumnos_pivot = df_alumnos.copy().drop_duplicates(subset=["Estudiante", "Área", "Cód"])
-    df_alumnos_pivot["Columna_Matriz"] = df_alumnos_pivot["Área"] + " (" + df_alumnos_pivot["Cód"] + ")"
-    matriz = df_alumnos_pivot.pivot(index="Estudiante", columns="Columna_Matriz", values="Nota").fillna("")
-    output_matriz = io.BytesIO()
-    with pd.ExcelWriter(output_matriz, engine='xlsxwriter') as writer:
-        matriz.reset_index().to_excel(writer, sheet_name='Sábana_de_Notas', index=False)
-    return matriz, output_matriz.getvalue()
+    matriz = df_alumnos.pivot_table(
+        index='Estudiante', 
+        columns=['Área', 'Competencia'], 
+        values='Nota', 
+        aggfunc='first'
+    )
+    
+    total_estudiantes = len(df_alumnos['Estudiante'].unique())
+    
+    def formatear_stat(counts):
+        df_stat = pd.DataFrame({'Cantidad': counts, 'Porcentaje': (counts / total_estudiantes * 100)})
+        return df_stat.apply(lambda x: f"N° {int(x['Cantidad'])} ({x['Porcentaje']:.1f}%)", axis=1)
 
+    c_counts = df_alumnos[df_alumnos['Nota'] == 'C'].groupby('Área')['Nota'].count()
+    top_c = formatear_stat(c_counts).sort_values(ascending=False).head(3)
+    logro_counts = df_alumnos[df_alumnos['Nota'].isin(['A', 'AD'])].groupby('Área')['Nota'].count()
+    top_logro = formatear_stat(logro_counts).sort_values(ascending=False).head(3)
+    
+    # --- EXPORTACIÓN CON COLORES ---
+    excel_bytes = io.BytesIO()
+    with pd.ExcelWriter(excel_bytes, engine='xlsxwriter') as writer:
+        matriz.to_excel(writer, sheet_name='Matriz_Logros')
+        workbook = writer.book
+        worksheet = writer.sheets['Matriz_Logros']
+        
+        # Definir formatos de color
+        fmt_ad = workbook.add_format({'bg_color': '#1e90ff', 'font_color': 'white', 'bold': True})
+        fmt_a = workbook.add_format({'bg_color': '#2ed573', 'font_color': 'black', 'bold': True})
+        fmt_b = workbook.add_format({'bg_color': '#ffa502', 'font_color': 'black', 'bold': True})
+        fmt_c = workbook.add_format({'bg_color': '#ff4757', 'font_color': 'white', 'bold': True})
+        
+        # Aplicar formato condicional en el rango de datos de la matriz
+        # (Asumiendo que los datos empiezan en la fila 3, col 2)
+        rango = f"B3:ZZ{len(matriz)+2}"
+        worksheet.conditional_format(rango, {'type': 'cell', 'criteria': '==', 'value': '"AD"', 'format': fmt_ad})
+        worksheet.conditional_format(rango, {'type': 'cell', 'criteria': '==', 'value': '"A"', 'format': fmt_a})
+        worksheet.conditional_format(rango, {'type': 'cell', 'criteria': '==', 'value': '"B"', 'format': fmt_b})
+        worksheet.conditional_format(rango, {'type': 'cell', 'criteria': '==', 'value': '"C"', 'format': fmt_c})
+    
+    excel_bytes.seek(0)
+    return matriz, excel_bytes.getvalue(), top_c, top_logro
 # ==========================================
 # EXTRA: DETECTOR DE METADATOS (MODO TURBO)
 # ==========================================
@@ -618,37 +651,52 @@ try:
                     st.info("No se pudieron extraer los nombres de los estudiantes.")
 
             # ----------------------------------------
-            # PESTAÑA 3: VISIÓN PANORÁMICA (Matriz)
-            # ----------------------------------------
-            with tab_panoramica:
-                if not df_alumnos.empty:
-                    st.markdown("### 👁️ Matriz de Logros de toda el Aula")
-                    st.info("💡 **Consejo:** Desplaza la tabla hacia la derecha para ver todas las competencias.")
-                    
-                    # Matriz generada ultra rápido desde Caché
-                    matriz, excel_matriz_bytes = preparar_matriz_panoramica(df_alumnos)
-                    
-                    try:
-                        matriz_coloreada = matriz.style.applymap(aplicar_colores_logro)
-                    except Exception:
-                        matriz_coloreada = matriz.style.map(aplicar_colores_logro)
-                        
-                    st.dataframe(matriz_coloreada, use_container_width=True)
-                    
-                    st.markdown("#### 📥 Exportar Matriz")
-                    nombre_matriz = f"Matriz_Panoramica_{grado.replace(' ', '_')}_{seccion.replace(' ', '_')}.xlsx"
-                    st.download_button(
-                        label="📥 Descargar Matriz Panorámica en Excel",
-                        data=excel_matriz_bytes,
-                        file_name=nombre_matriz,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-        else:
-            st.warning("⚠️ No se encontraron datos. Verifica tus archivos.")
+# PESTAÑA 3: VISIÓN PANORÁMICA (Matriz)
+# ----------------------------------------
+# ----------------------------------------
+# PESTAÑA 3: VISIÓN PANORÁMICA (Matriz)
+# ----------------------------------------
+# 5. Contenido Pestaña 3
+      # 5. Contenido Pestaña 3
+        # 5. Contenido Pestaña 3 (dentro de tab_panoramica)
+        with tab_panoramica:
+            if 'df_alumnos' in st.session_state and not st.session_state.df_alumnos.empty:
+                st.markdown("### 👁️ Matriz de Logros de toda el Aula")
+                
+                # Generación
+                matriz, excel_matriz_bytes, top_c, top_logro = preparar_matriz_panoramica(st.session_state.df_alumnos)
+                
+                # Visualización de la Matriz
+                try:
+                    matriz_coloreada = matriz.style.map(aplicar_colores_logro)
+                except Exception:
+                    matriz_coloreada = matriz.style.applymap(aplicar_colores_logro)
+                st.dataframe(matriz_coloreada, use_container_width=True)
+                
+                st.divider()
+                
+                # Estadísticas con N° y %
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("#### 🚩 Áreas con más alumnos en Inicio (C)")
+                    st.table(top_c.rename("Estadística"))
+                with col2:
+                    st.markdown("#### 🏆 Áreas con más alumnos en Logro (A/AD)")
+                    st.table(top_logro.rename("Estadística"))
+               
+                          
+                st.markdown("#### 📥 Exportar Matriz")
+                nombre_matriz = f"Matriz_Panoramica_{str(st.session_state.get('grado', 'Grado')).replace(' ', '_')}.xlsx"
+                st.download_button(
+                    label="📥 Descargar Matriz Panorámica en Excel",
+                    data=excel_matriz_bytes,
+                    file_name=nombre_matriz,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.info("Carga documentos para ver la visión panorámica.")
     else:
         st.info("📂 Sube tus archivos (Actas PDF o Registros Excel) para comenzar.")
 
 except Exception as e_fatal:
     st.error(f"⚠️ ERROR FATAL EN LA INTERFAZ. Cópialo y envíalo por el chat:\n\n```\n{traceback.format_exc()}\n```")
-
